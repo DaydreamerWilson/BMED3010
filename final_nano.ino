@@ -59,8 +59,8 @@ int value_change = 0;
 float signal_difference = 50;
 
 const int offset = 2;
-const int Red = 0;
-const int IR = 1;
+#define Red 0
+#define IR 1
 const int n = 63;
 const float numerators[n] = {-0.00022544666817018, -0.000938779806837583,  -0.00151530778104534, 0.000132888707232203, 0.00558654760000211,  0.0122417197575537, 0.0134280970300094, 0.00557846227859054,  -0.00485065058896525, -0.00642744880876713, 0.0025242609228204, 0.0091491956981348, 0.0023664495906769, -0.00947189965243818, -0.0079034886350454,  0.00744478661228586,  0.0138308760205761, -0.00189858017155633, -0.018417069989154, -0.00739853631529773, 0.0195829084725101, 0.0199477883168333, -0.0149384519295424,  -0.0344698756610589,  0.00163423751854071,  0.0490498522568523, 0.0250802864506343, -0.0615293290117183,  -0.080770651704926, 0.0699431739187571, 0.309479055311869,  0.427086828012949,  0.309479055311869,  0.0699431739187571, -0.080770651704926, -0.0615293290117183,  0.0250802864506343, 0.0490498522568523, 0.00163423751854071,  -0.0344698756610589,  -0.0149384519295424,  0.0199477883168333, 0.0195829084725101, -0.00739853631529773, -0.018417069989154, -0.00189858017155633, 0.0138308760205761, 0.00744478661228586,  -0.0079034886350454,  -0.00947189965243818, 0.0023664495906769, 0.0091491956981348, 0.0025242609228204, -0.00642744880876713, -0.00485065058896525, 0.00557846227859054,  0.0134280970300094, 0.0122417197575537, 0.00558654760000211,  0.000132888707232203, -0.00151530778104534, -0.000938779806837583,  -0.00022544666817018};
 float raw_signal[2][n];
@@ -70,6 +70,11 @@ float filter_temp[2] = {0,0};
 float filter_prev[2] = {0,0};
 int filter_counter[2] = {0,0};
 float DAC_output = 2;
+#define MAX 0
+#define MIN 1
+float signal_wrap[2][2] = {{-3300,3300},{-3300,3300}};
+float signal_wrap_a[2][2] = {{1,1},{1,1}};
+float alpha = 0.9;
 
 // Variables for controlling menu
 
@@ -153,7 +158,7 @@ float * probe(float t){
   value_change = 0;
   if((period > output_period*0.3 && period < output_period*0.4 && !checker) || (period > output_period*0.8 && period < output_period*0.9 && checker)){
     float inputstore = (float)analogRead(A2);
-    input_digital = inputstore/1024*3.3*1000; // Read Signal from A2
+    input_digital = 3300 - inputstore/1024*3.3*1000; // Read Signal from A2
     // Print the reading to serial port for visualization //  
     value_change = 0;
     if(!checker){
@@ -162,6 +167,19 @@ float * probe(float t){
       Serial.print("IR:");
       filter_temp[IR] -= exp_average(filter_prev[IR], filter_temp[IR], 0.8);
       filter_prev[IR] = filter_temp[IR];
+
+      //Signal envelope decay
+      signal_wrap_a[IR][MAX]*=(1/0.9);
+      signal_wrap_a[IR][MIN]*=(1/0.9);
+      if(filter_temp[IR]>signal_wrap[IR][MAX]-signal_wrap_a[IR][MAX]){
+        signal_wrap[IR][MAX]=filter_temp[IR];
+        signal_wrap_a[IR][MAX]=1;
+      }
+      if(filter_temp[IR]<signal_wrap[IR][MIN]+signal_wrap_a[IR][MIN]){
+        signal_wrap[IR][MIN]=filter_temp[IR];
+        signal_wrap_a[IR][MIN]=1;
+      }
+      
       Serial.print(filter_temp[IR]+signal_difference);
       //update_monitor("IR");
       value_change = 1;
@@ -175,6 +193,19 @@ float * probe(float t){
       Serial.print(",RED:");
       filter_temp[Red] -= exp_average(filter_prev[Red], filter_temp[Red], 0.8);
       filter_prev[Red] = filter_temp[Red];
+
+      //Signal envelope decay
+      signal_wrap_a[Red][MAX]*=(1/0.9);
+      signal_wrap_a[Red][MIN]*=(1/0.9);
+      if(filter_temp[Red]>signal_wrap[Red][MAX]-signal_wrap_a[Red][MAX]){
+        signal_wrap[Red][MAX]=filter_temp[Red];
+        signal_wrap_a[Red][MAX]=1;
+      }
+      if(filter_temp[Red]<signal_wrap[Red][MIN]+signal_wrap_a[Red][MIN]){
+        signal_wrap[Red][MIN]=filter_temp[Red];
+        signal_wrap_a[Red][MIN]=1;
+      }
+      
       Serial.println(filter_temp[Red]-signal_difference);
       //update_monitor("RED");
       value_change = 2;
@@ -203,9 +234,9 @@ float * probe(float t){
   filter_counter[Red]++;
 }
 
-int draw_text(int x, int y, int size, String text){
+int draw_text(int x, int y, int size, int color, String text){
   display.setTextSize(size);      // Normal 1:1 pixel scale
-  display.setTextColor(WHITE); // Draw white text
+  display.setTextColor(color); // Draw white text
   display.cp437(true);
   display.setCursor(x, y);     // Start at top-left corner;
   for(int i = 0; i<text.length(); i++){
@@ -214,19 +245,25 @@ int draw_text(int x, int y, int size, String text){
 }
 
 int display_monitor(){
-  
   if((value_change-1)==1){
     //IR
-    display.fillRect(10,40,100,8, BLACK);
+    display.fillRect(10,0,54,8, BLACK);
     String text = String(filter_temp[IR]);
-    draw_text(10,40,1,text);
+    draw_text(10,2,1,WHITE,text);
+    int temp = (int)((filter_temp[IR]+signal_wrap[IR][MIN])/signal_wrap[IR][MAX]*24);
+    display.drawPixel(126, 31-temp, WHITE);
   }
   else{
     //RED
-    display.fillRect(10,20,100,8, BLACK);
+    display.fillRect(74,0,54,8, BLACK);
     String text = String(filter_temp[Red]);
-    draw_text(10,20,1,text);
+    draw_text(74,2,1,WHITE,text);
+    int temp = (int)((filter_temp[IR]+signal_wrap[IR][MIN])/signal_wrap[IR][MAX]*24);
+    display.drawPixel(126, 55-temp, WHITE);
+    display.startscrollleft(1,6);
+    display.stopscroll();
   }
+  display.drawLine(0,0,0,127,BLACK);
   display.display();
   return 0;
 }
