@@ -63,13 +63,25 @@
 <script src="graph.js"></script>
 <script>
   setInterval("displayChart()", 50)
+  let options = {
+    filter: [
+      { services: ["pulse_oximeter"] }
+    ]
+  }
   navigator.bluetooth.getAvailability().then((available) => {
   if (available) {
     console.log("This device supports Bluetooth!");
   } else {
     console.log("Doh! Bluetooth is not supported");
   }
+  navigator.bluetooth
+    .requestDevice(options)
+    .then((device) => {
+      console.log('Name: ${device.name}');
+    })
+    .catch((error) => console.error('Something went wrong. ${error}'));
 });
+    
 </script>
 
 </body>
