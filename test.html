@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+.button {
+  border: none;
+  color: white;
+  padding: 16px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  transition-duration: 0.1s;
+  cursor: pointer;
+}
+.button1 {
+  background-color: white;
+  color: black;
+  border: 2px solid #4CAF50;
+}
+.button1:hover {
+  background-color: #4CAF50;
+  color: white;
+}
+.button1:active {
+  background-color: white;
+  color: black;
+  border: 2px solid #4CAF50
+}
+.button2 {
+  background-color: white;
+  color: black;
+  border: 2px solid #008CBA;
+}
+.button2:hover {
+  background-color: #008CBA;
+  color: white;
+}
+.button2:active {
+  background-color: white;
+  color: black;
+  border: 2px solid #008CBA
+}
+.button3 {
+  background-color: white;
+  color: black;
+  border: 2px solid #a200ff;
+}
+.button3:hover {
+  background-color: #a200ff;
+  color: white;
+}
+.button3:active {
+  background-color: white;
+  color: black;
+  border: 2px solid #a200ff
+}
+</style>
+</head>
+<body>
+
+<button class="button button1" onclick="startButton()">Start</button>
+<button class="button button2" onclick="stopButton()">Stop</button>
+<p><button class = "button button3" onclick="connectToOxiband()">Connect</button></p>
+<p id = "notify">What are you doing step-user</p>
+<canvas id="graph" style="width:100%;max-width:700px"></canvas>
+
+<script>var xValues = [];
+  var yValues = [];
+  var counter = 0;
+  
+  while(counter < 100){
+      xValues.push(counter);
+      yValues.push(Math.sin(counter*Math.PI/20));
+      counter+=1;
+  }
+  
+  function displayChart(){
+      if(checker){
+          counter+=1;
+  
+          xValues.push(counter);
+          xValues.shift();
+          yValues.push(Math.sin(counter*Math.PI/20));
+          yValues.shift();
+  
+          gtd.data.labels = xValues;
+          gtd.data.datasets.data = yValues;
+          gtd.options.scales.yAxes = [{ticks: {min: -1, max: 1}}]
+          gtd.update();
+      }
+  };
+  
+  var gtd = new Chart(
+      "graph",
+      {
+          type: "line",
+          data: {
+              labels: xValues,
+              datasets: [{
+                  backgroundColor: "rgba(0,0,50,0.5)",
+                  borderColor: "rgba(0,0,50,1.0)",
+                  data: yValues
+              }]
+          },
+          options: {
+              legend: {display: false},
+              scales: {
+                  yAxes: [{ticks: {min: -1, max: 1}}],
+              },
+              animation: false,
+              decimation: true
+          }
+      }
+  );</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js"></script>
+<script>var checker = false;
+
+  function startButton(){
+      document.getElementById("notify").innerHTML = "You pressed the start button";
+      checker = true;
+  }
+  
+  function stopButton(){
+      document.getElementById("notify").innerHTML = "You pressed the stop button";
+      checker = false;
+  }
+  
+  var device;
+  var service;
+  var characteristic;
+  
+  async function connectToOxiband(){
+      let options = {
+          filters: [
+              { services: [0x5a30] },
+              { name: "OxiBand" }
+          ],
+      };
+      
+      try{
+          device = await navigator.bluetooth.getDevice(options);
+          gatt = await device.gatt.connect();
+          service = await gatt.getPrimaryService(0x5a30);
+          characteristic = await service.getCharacteristic(0x7a21);
+          document.getElementById("notify").innerHTML = characteristic;
+      }
+      catch(error){console.error(`Something went wrong. ${error}`)};
+  }
+  
+  async function checkCharacteristics(){
+      let x = "5";
+  }</script>
+<script>
+  setInterval("displayChart()", 50)
+  setInterval("checkCharacteristics()", 50);
+</script>
+
+</body>
+</html>
