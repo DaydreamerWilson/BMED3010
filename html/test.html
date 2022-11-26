@@ -63,6 +63,13 @@
 <script src="graph.js"></script>
 <script>
   setInterval("displayChart()", 50)
+  navigator.bluetooth.getAvailability().then((available) => {
+  if (available) {
+    console.log("This device supports Bluetooth!");
+  } else {
+    console.log("Doh! Bluetooth is not supported");
+  }
+});
 </script>
 
 </body>
