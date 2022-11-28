@@ -20,12 +20,12 @@ function displayChart(){
         hr_yValues.push(heart_rate);
         hr_yValues.shift();
         hr_xValues.push(d.getTime()/1000);
-        hr_xValues.shift;
+        hr_xValues.shift();
 
         spo2_yValues.push(spo2_rate);
         spo2_yValues.shift();
         spo2_xValues.push(d.getTime()/1000);
-        spo2_xValues.shift;
+        spo2_xValues.shift();
 
         gtd.data.labels = hr_xValues;
         gtd.data.datasets.data = hr_yValues;
@@ -55,7 +55,6 @@ var gtd = new Chart(
             scales: {
                 yAxes: [{ticks: {min: 40, max: 180}}],
             },
-            animation: false,
             decimation: true
         }
     }
@@ -78,7 +77,6 @@ var std = new Chart(
             scales: {
                 yAxes: [{ticks: {min: 0, max: 100}}],
             },
-            animation: false,
             decimation: true
         }
     }
