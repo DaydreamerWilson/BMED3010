@@ -1,45 +1,82 @@
-var xValues = [];
-var yValues = [];
+var hr_xValues = [];
+var hr_yValues = [];
+var spo2_xValues = [];
+var spo2_yValues = [];
 var counter = 0;
 
 while(counter < 100){
-    xValues.push(counter);
-    yValues.push(Math.sin(counter*Math.PI/20));
+    hr_xValues.push(0);
+    hr_yValues.push(0);
+    spo2_xValues.push(0);
+    spo2_yValues.push(0);
     counter+=1;
 }
 
 function displayChart(){
-    if(checker){
+    try{
         counter+=1;
+        const d = new Date();
 
-        xValues.push(counter);
-        xValues.shift();
-        yValues.push(Math.sin(counter*Math.PI/20));
-        yValues.shift();
+        hr_yValues.push(heart_rate);
+        hr_yValues.shift();
+        hr_xValues.push(d.getTime()/1000);
+        hr_xValues.shift;
 
-        gtd.data.labels = xValues;
-        gtd.data.datasets.data = yValues;
-        gtd.options.scales.yAxes = [{ticks: {min: -1, max: 1}}]
+        spo2_yValues.push(spo2_rate);
+        spo2_yValues.shift();
+        spo2_xValues.push(d.getTime()/1000);
+        spo2_xValues.shift;
+
+        gtd.data.labels = hr_xValues;
+        gtd.data.datasets.data = hr_yValues;
         gtd.update();
+
+        std.data.labels = spo2_xValues;
+        std.data.datasets.data = spo2_yValues;
+        std.update();
     }
+    catch(error){console.error(`Something went wrong. ${error}`); document.getElementById("errorLog").innerHTML = error;};
 };
 
 var gtd = new Chart(
-    "graph",
+    "hr_graph",
     {
         type: "line",
         data: {
-            labels: xValues,
+            labels: hr_xValues,
             datasets: [{
                 backgroundColor: "rgba(0,0,50,0.5)",
                 borderColor: "rgba(0,0,50,1.0)",
-                data: yValues
+                data: hr_yValues
             }]
         },
         options: {
             legend: {display: false},
             scales: {
-                yAxes: [{ticks: {min: -1, max: 1}}],
+                yAxes: [{ticks: {min: 40, max: 180}}],
+            },
+            animation: false,
+            decimation: true
+        }
+    }
+);
+
+var std = new Chart(
+    "spo2_graph",
+    {
+        type: "line",
+        data: {
+            labels: spo2_xValues,
+            datasets: [{
+                backgroundColor: "rgba(0,0,50,0.5)",
+                borderColor: "rgba(0,0,50,1.0)",
+                data: spo2_yValues
+            }]
+        },
+        options: {
+            legend: {display: false},
+            scales: {
+                yAxes: [{ticks: {min: 0, max: 100}}],
             },
             animation: false,
             decimation: true
