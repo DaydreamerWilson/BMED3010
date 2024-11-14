@@ -1,21 +1,4 @@
-/*-------------------------------Arduino code for pulse oximetry-------------------------------
-
-  [Objective]
-  Develope a functional oscilloscope and signal generator on Arduino DUE with the following functions:
-  1. Real-time signal sampling 
-  2. Waveform display in serial ploter
-  3. Allow amplitude, offset, frequency and pattern setting 
-  4. Output pattern: DC, sinusoidal, sawtooth & square waves
-  5. Output voltage range (Amplitude+offset) = 0-3.3V
-  6. Signal frequency = 0-100 Hz
-
-  ** Fill in all [......] to make it functional**
-
-
-  [For Task 2 only]
-  1. Add a parameter called "PhaseDelay" in addition to  DAC1 output channel.
-  2. Set "PhaseDelay" to be half of the signal period.
-  3. Set "amplitude" of DAC1 channel to be 0.5V.
+  /*-------------------------------Arduino code for pulse oximetry-------------------------------
 
 ---------------------------------------------------------------------------------------------*/
 
@@ -23,6 +6,7 @@
 
 #include <SPI.h>
 #include <Wire.h>
+#include <ArduinoBLE.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -31,8 +15,13 @@
 //==========================================================================================//
 
 // Master clock info //
-const int clock_rate = 115200;               // CLock frequency (Hz)
-const int loop_period = 2500;               // Loop period (us)
+const int clock_rate = 115200;               // Baud rate (Hz)
+const int default_loop_period = 2500;
+int loop_period = default_loop_period;               // Loop period (us)
+
+//==============================================================//
+/* DAC OUTPUT */      float DAC_output = 0;     /* DAC OUTPUT */
+//==============================================================//
 
 // Signal generation //
 bool output_signal = true;               // ON/OFF of signal generation
@@ -46,6 +35,7 @@ const float max_voltage = 3.3;                // Max. voltage output (V)
 const int output_resolution = 10;               // Input resolution
 const int input_resolution = 10;                // Input resolution
 const bool antiphase = true;
+float delay_debt = 0;
 
 int output_digital;                 // Output signal (digital)
 float output;                 // Output signal (analog)
@@ -56,35 +46,45 @@ bool input_channels = 1;                // Number of input channel (analog input
 float input_digital;          // Input reading (digital)
 bool checker = false;
 int value_change = 0;
-float signal_difference = 50;
+float signal_difference = 800L;
 
 const int offset = 2;
 #define Red 0
 #define IR 1
-const int n = 63;
-const float numerators[n] = {-0.00022544666817018, -0.000938779806837583,  -0.00151530778104534, 0.000132888707232203, 0.00558654760000211,  0.0122417197575537, 0.0134280970300094, 0.00557846227859054,  -0.00485065058896525, -0.00642744880876713, 0.0025242609228204, 0.0091491956981348, 0.0023664495906769, -0.00947189965243818, -0.0079034886350454,  0.00744478661228586,  0.0138308760205761, -0.00189858017155633, -0.018417069989154, -0.00739853631529773, 0.0195829084725101, 0.0199477883168333, -0.0149384519295424,  -0.0344698756610589,  0.00163423751854071,  0.0490498522568523, 0.0250802864506343, -0.0615293290117183,  -0.080770651704926, 0.0699431739187571, 0.309479055311869,  0.427086828012949,  0.309479055311869,  0.0699431739187571, -0.080770651704926, -0.0615293290117183,  0.0250802864506343, 0.0490498522568523, 0.00163423751854071,  -0.0344698756610589,  -0.0149384519295424,  0.0199477883168333, 0.0195829084725101, -0.00739853631529773, -0.018417069989154, -0.00189858017155633, 0.0138308760205761, 0.00744478661228586,  -0.0079034886350454,  -0.00947189965243818, 0.0023664495906769, 0.0091491956981348, 0.0025242609228204, -0.00642744880876713, -0.00485065058896525, 0.00557846227859054,  0.0134280970300094, 0.0122417197575537, 0.00558654760000211,  0.000132888707232203, -0.00151530778104534, -0.000938779806837583,  -0.00022544666817018};
+const int n = 100;
+const float numerators[n] = {0.00238069, 0.00496077, 0.00628723, 0.00409986, -0.00165914,  -0.00829105,  -0.01180148,  -0.00984201,  -0.00411156,  0.00034113, -0.00044727,  -0.00486282,  -0.00679408,  -0.00263576,  0.00363896, 0.00486264, 0.00029319, -0.00244983,  0.00257190, 0.01050113, 0.01142838, 0.00470280, 0.00120244, 0.00811101, 0.01711225, 0.01500347, 0.00362885, -0.00077745,  0.00891742, 0.01795166, 0.00959465, -0.00854382,  -0.01262254,  0.00207912, 0.01032863, -0.00783637,  -0.03396981,  -0.03355741,  -0.00849113,  -0.00147327,  -0.03549904,  -0.07157652,  -0.05662109,  -0.00665971,  -0.00178586,  -0.07611130,  -0.14209386,  -0.07176981,  0.13980663, 0.33190419, 0.33190419, 0.13980663, -0.07176981,  -0.14209386,  -0.07611130,  -0.00178586,  -0.00665971,  -0.05662109,  -0.07157652,  -0.03549904,  -0.00147327,  -0.00849113,  -0.03355741,  -0.03396981,  -0.00783637,  0.01032863, 0.00207912, -0.01262254,  -0.00854382,  0.00959465, 0.01795166, 0.00891742, -0.00077745,  0.00362885, 0.01500347, 0.01711225, 0.00811101, 0.00120244, 0.00470280, 0.01142838, 0.01050113, 0.00257190, -0.00244983,  0.00029319, 0.00486264, 0.00363896, -0.00263576,  -0.00679408,  -0.00486282,  -0.00044727,  0.00034113, -0.00411156,  -0.00984201,  -0.01180148,  -0.00829105,  -0.00165914,  0.00409986, 0.00628723, 0.00496077, 0.00238069};
 float raw_signal[2][n];
 int current_position = 0;
-const int filter_amount = n/(1/output_frequency/loop_period*1000000)*2;
+int monitor_position = 0;
 float filter_temp[2] = {0,0};
 float filter_prev[2] = {0,0};
 int filter_counter[2] = {0,0};
-float DAC_output = 2;
+float signal_power[2] = {0,0};
+
 #define MAX 0
 #define MIN 1
+#define Y 0
+#define DY 1
 float signal_wrap[2][2] = {{-3300,3300},{-3300,3300}};
-float signal_wrap_a[2][2] = {{1,1},{1,1}};
-float alpha = 0.9;
+float stablized_signal_wrap[2][2] = {{-3300,3300},{-3300,3300}};
+float signal_wrap_a[2][2][2] = {{{1,1},{1,1}},{{1,1},{1,1}}};
+bool signal_past_zero[2][2] = {{false,false},{false,false}};
+bool signal_hr_flag[2][2] = {{false,false},{false,false}};
+float alpha = 0.3;
+float pt_counter[2][2] = {{13,13},{13,13}};
+float heart_rate_counter[2] = {0,0};
+float SpO2_prelim[2][2] = {{0,0},{0,0}};
+float SpO2 = 0;
 
 // Variables for controlling menu
 
 #define menu_ 0
 #define monitor_ 1
-#define save_ 2
-#define setting_ 3
-#define easteregg_ 4
+#define setting_ 2
+#define print_ 3
+#define easteregg_ 420
 
-int mode = monitor_;
+int mode = menu_;
 
 // Information for OLED displays
 #define LOGO_HEIGHT 64
@@ -94,7 +94,41 @@ int mode = monitor_;
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET, 1700000, 100000);
+
+class hr_c{
+  const int num = 60;
+  int at_position = 0;
+  float samples[60];
+  public:
+  int heart_rate(){
+    for(int i = 0; i < 60; i++){
+      samples[i]=0;
+    }
+  }
+  void push(float input){
+    samples[at_position]=input;
+    at_position++;
+    at_position%=num;
+  }
+  float average(){
+    float temp = 0;
+    for(int i = 0; i < 60; i++){
+      temp+=samples[i];
+    }
+    return temp/60;
+  }
+  float variance(){
+    float a = this->average();
+    float temp = 0;
+    for(int i = 0; i < 60; i++){
+      temp+=(samples[i]-a)*(samples[i]-a);
+    }
+    return temp;
+  }
+};
+
+hr_c red_heart;
 
 //==========================================================================================//
 //                                          2. Functions                                    //
@@ -102,24 +136,27 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 float exp_average(float prev, float now, float a){
   return (float)((1-a)*prev + a*now);
+  return 0;
 }
 
-float lowpass_filter(int choice, int start, int end, int temp){
-  if(start<n){
-    if(end>n){end=n;}
-    for(int i=start; i<end; i++){
-      temp += numerators[i]*raw_signal[choice][(current_position+i)%n];
-    }
+float lowpass_filter(int choice){
+  float temp = 0;
+  for(int i=0; i<n; i++){
+    temp += numerators[i]*raw_signal[choice][(current_position+i)%n];
   }
   return temp;
 }
 
 float * probe(float t){
 
-  //================================== Signal generation ===================================//
+//===============================================================================================================================================================//
+//                                                 NO NO ZONE STARTS HERE (AVOID EDITING THIS PART AT ALL COST)                                                  //
+//===============================================================================================================================================================//
+
+//================================== Signal generation ===================================//
   
   if (output_signal) {   // ON/OFF of signal generation 
-
+    /*
     for (int i = 0; i < 2; i++) {    // Two signal generation channels by looping 
       // Shifting two signal in anti-phase
       if(i && antiphase){  
@@ -139,100 +176,187 @@ float * probe(float t){
       if (!i) {
         digitalWrite(11, output);    // output at D11 (IR)
       }
-
-
-      if(DAC_output > max_voltage*5/6){DAC_output = max_voltage*5/6;} 
-      if(DAC_output < max_voltage/6){DAC_output = max_voltage/6;}  
-      analogWrite(DAC0, ((DAC_output-max_voltage/6)/(max_voltage*4/6))*1024);
-
       // Print output value to serial port to check waveform in serial plotter //
       //Serial.println(output);
     }
+    */
+
+    if(DAC_output > max_voltage*5/6){DAC_output = max_voltage*5/6;} 
+    if(DAC_output < max_voltage/6){DAC_output = max_voltage/6;}  
+    analogWrite(DAC0, ((DAC_output-max_voltage/6)/(max_voltage*4/6))*1024);
+    
   }
 
   //================================== Signal detection ===================================//
 
- 
   // Sampling at analog channel defined above //
   float period = remainder(t, 1/output_frequency)+(0.5/output_frequency);
   value_change = 0;
   if((period > output_period*0.3 && period < output_period*0.4 && !checker) || (period > output_period*0.8 && period < output_period*0.9 && checker)){
     float inputstore = (float)analogRead(A2);
     input_digital = 3300 - inputstore/1024*3.3*1000; // Read Signal from A2
+    input_digital *= 10;
     // Print the reading to serial port for visualization //  
-    value_change = 0;
+    value_change = 1;
     if(!checker){
       //D12: IR
       raw_signal[IR][current_position] = input_digital;
-      Serial.print("IR:");
-      filter_temp[IR] -= exp_average(filter_prev[IR], filter_temp[IR], 0.8);
-      filter_prev[IR] = filter_temp[IR];
+      //signal_power[IR] = input_digital;
+      signal_power[IR] = exp_average(signal_power[IR], input_digital, 0.03);
 
       //Signal envelope decay
-      signal_wrap_a[IR][MAX]*=(1/0.9);
-      signal_wrap_a[IR][MIN]*=(1/0.9);
-      if(filter_temp[IR]>signal_wrap[IR][MAX]-signal_wrap_a[IR][MAX]){
+      if(filter_temp[IR]<0){signal_past_zero[IR][MAX]=true;}
+      if(filter_temp[IR]>0){signal_past_zero[IR][MIN]=true;}
+      if(filter_temp[IR]>signal_wrap_a[IR][MAX][Y] && (signal_past_zero[IR][MAX] || signal_wrap_a[IR][MAX][Y]==signal_wrap[IR][MAX])){
         signal_wrap[IR][MAX]=filter_temp[IR];
-        signal_wrap_a[IR][MAX]=1;
+        signal_wrap_a[IR][MAX][Y]=filter_temp[IR];
+        signal_wrap_a[IR][MAX][DY]=abs(filter_temp[IR]/30);
+        signal_past_zero[IR][MAX]=false;
+        signal_hr_flag[IR][MAX]=true;
       }
-      if(filter_temp[IR]<signal_wrap[IR][MIN]+signal_wrap_a[IR][MIN]){
+      else{
+        signal_wrap_a[IR][MAX][Y]-=signal_wrap_a[IR][MAX][DY];
+        stablized_signal_wrap[IR][MAX]=signal_wrap[IR][MAX];
+      }
+      if(filter_temp[IR]<signal_wrap_a[IR][MIN][Y] && (signal_past_zero[IR][MIN] || signal_wrap_a[IR][MIN][Y]==signal_wrap[IR][MIN])){
         signal_wrap[IR][MIN]=filter_temp[IR];
-        signal_wrap_a[IR][MIN]=1;
+        signal_wrap_a[IR][MIN][Y]=filter_temp[IR];
+        signal_wrap_a[IR][MIN][DY]=abs(filter_temp[IR]/30);
+        signal_past_zero[IR][MIN]=false;
+        signal_hr_flag[IR][MIN]=true;
+      }
+      else{
+        signal_wrap_a[IR][MIN][Y]+=signal_wrap_a[IR][MIN][DY];
+        stablized_signal_wrap[IR][MIN]=signal_wrap[IR][MIN];
+      }
+
+      if(signal_wrap_a[IR][MAX][Y]!=signal_wrap[IR][MAX]&&signal_hr_flag[IR][MAX]){
+        heart_rate_counter[IR]=exp_average(heart_rate_counter[IR], pt_counter[IR][MAX], 0.05);
+        SpO2_prelim[IR][MAX]=exp_average(SpO2_prelim[IR][MAX], signal_wrap[IR][MAX], 0.03);
+        red_heart.push(pt_counter[IR][MAX]);
+        pt_counter[IR][MAX]=0;
+        signal_hr_flag[IR][MAX]=false;
+      }
+      if(signal_wrap_a[IR][MIN][Y]!=signal_wrap[IR][MIN]&&signal_hr_flag[IR][MIN]){
+        heart_rate_counter[IR]=exp_average(heart_rate_counter[IR], pt_counter[IR][MIN], 0.05);
+        SpO2_prelim[IR][MIN]=exp_average(SpO2_prelim[IR][MIN], signal_wrap[IR][MIN], 0.03);
+        red_heart.push(pt_counter[IR][MIN]);
+        pt_counter[IR][MIN]=0;
+        signal_hr_flag[IR][MIN]=false;
       }
       
-      Serial.print(filter_temp[IR]+signal_difference);
-      //update_monitor("IR");
+      output = filter_temp[IR];
       value_change = 1;
     
       filter_temp[IR] = 0;
       filter_counter[IR] = 0;
+      pt_counter[IR][MAX]++;
+      pt_counter[IR][MIN]++;
     }
     else{
       //D11: RED
       raw_signal[Red][current_position] = input_digital;
-      Serial.print(",RED:");
-      filter_temp[Red] -= exp_average(filter_prev[Red], filter_temp[Red], 0.8);
-      filter_prev[Red] = filter_temp[Red];
+      //signal_power[Red] = input_digital;
+      signal_power[Red] = exp_average(signal_power[Red], input_digital, 0.03);
+      //filter_temp[Red] = exp_average(filter_prev[Red], filter_temp[Red], alpha);
+      //filter_prev[Red] = filter_temp[Red];
 
       //Signal envelope decay
-      signal_wrap_a[Red][MAX]*=(1/0.9);
-      signal_wrap_a[Red][MIN]*=(1/0.9);
-      if(filter_temp[Red]>signal_wrap[Red][MAX]-signal_wrap_a[Red][MAX]){
+      if(filter_temp[Red]<0){signal_past_zero[Red][MAX]=true;}
+      if(filter_temp[Red]>0){signal_past_zero[Red][MIN]=true;}
+      if(filter_temp[Red]>signal_wrap_a[Red][MAX][Y] && (signal_past_zero[Red][MAX] || signal_wrap_a[Red][MAX][Y]==signal_wrap[Red][MAX])){
         signal_wrap[Red][MAX]=filter_temp[Red];
-        signal_wrap_a[Red][MAX]=1;
+        signal_wrap_a[Red][MAX][Y]=filter_temp[Red];
+        signal_wrap_a[Red][MAX][DY]=abs(filter_temp[Red]/30);
+        signal_past_zero[Red][MAX]=false;
+        signal_hr_flag[Red][MAX]=true;
       }
-      if(filter_temp[Red]<signal_wrap[Red][MIN]+signal_wrap_a[Red][MIN]){
+      else{
+        signal_wrap_a[Red][MAX][Y]-=signal_wrap_a[Red][MAX][DY];
+        stablized_signal_wrap[Red][MAX]=signal_wrap[Red][MAX];
+      }
+      if(filter_temp[Red]<signal_wrap_a[Red][MIN][Y] && (signal_past_zero[Red][MIN] || signal_wrap_a[Red][MIN][Y]==signal_wrap[Red][MIN])){
         signal_wrap[Red][MIN]=filter_temp[Red];
-        signal_wrap_a[Red][MIN]=1;
+        signal_wrap_a[Red][MIN][Y]=filter_temp[Red];
+        signal_wrap_a[Red][MIN][DY]=abs(filter_temp[Red]/30);
+        signal_past_zero[Red][MIN]=false;
+        signal_hr_flag[Red][MIN]=true;
+      }
+      else{
+        signal_wrap_a[Red][MIN][Y]+=signal_wrap_a[Red][MIN][DY];
+        stablized_signal_wrap[Red][MIN]=signal_wrap[Red][MIN];
+      }
+
+      if(signal_wrap_a[Red][MAX][Y]!=signal_wrap[Red][MAX]&&signal_hr_flag[Red][MAX]){
+        heart_rate_counter[Red]=exp_average(heart_rate_counter[Red], pt_counter[Red][MAX], 0.05);
+        SpO2_prelim[Red][MAX]=exp_average(SpO2_prelim[Red][MAX], signal_wrap[Red][MAX], 0.03);
+        
+        pt_counter[Red][MAX]=0;
+        signal_hr_flag[Red][MAX]=false;
+      }
+      if(signal_wrap_a[Red][MIN][Y]!=signal_wrap[Red][MIN]&&signal_hr_flag[Red][MIN]){
+        heart_rate_counter[Red]=exp_average(heart_rate_counter[Red], pt_counter[Red][MIN], 0.05);
+        SpO2_prelim[Red][MIN]=exp_average(SpO2_prelim[Red][MIN], signal_wrap[Red][MIN], 0.03);
+        
+        pt_counter[Red][MIN]=0;
+        signal_hr_flag[Red][MIN]=false;
       }
       
-      Serial.println(filter_temp[Red]-signal_difference);
-      //update_monitor("RED");
+      
+      
+      output = filter_temp[IR];
       value_change = 2;
 
       filter_temp[Red] = 0;
       filter_counter[Red] = 0;
+      pt_counter[Red][MAX]++;
+      pt_counter[Red][MIN]++;
       
       current_position++;
       current_position %= n;
     }
-    
+
+    if(!checker){
+      digitalWrite(11, LOW);    // output at D11 (IR)
+      digitalWrite(12, HIGH);    // output at D12 (Red)
+    }
+    else{
+      digitalWrite(11, HIGH);    // output at D11 (IR)
+      digitalWrite(12, LOW);    // output at D12 (Red)
+    }
+
     /*
-    Serial.print(period);
-    Serial.print(" ");
-    Serial.print(output_period);
-    Serial.print(" ");
-    Serial.println(checker);
+    SpO2 = ((SpO2_prelim[Red][MAX]-SpO2_prelim[Red][MIN])/heart_rate_counter[Red]/signal_power[Red])
+            /
+            ((SpO2_prelim[IR][MAX]-SpO2_prelim[IR][MIN])/heart_rate_counter[IR]/signal_power[IR]);
     */
-    //Serial.println("");
+
+    SpO2 = log((SpO2_prelim[IR][MIN]+signal_power[IR])/(SpO2_prelim[IR][MAX]+signal_power[IR]))
+           /log((SpO2_prelim[Red][MIN]+signal_power[Red])/(SpO2_prelim[Red][MAX]+signal_power[Red]));
+
+    SpO2 = (SpO2/250+0.9288)*100;
+    if((String((int)SpO2)).length()>=3){SpO2=100;}
+    if(SpO2>99){SpO2=99;}
+    if(SpO2<0){SpO2=0;}
+           
+            
+    
     checker = !checker;
   }
 
-  filter_temp[IR] = lowpass_filter(IR, filter_counter[IR]*filter_amount, (filter_counter[IR]+1)*filter_amount, filter_temp[IR]);
-  filter_temp[Red] = lowpass_filter(Red, filter_counter[Red]*filter_amount, (filter_counter[Red]+1)*filter_amount, filter_temp[Red]);
-  filter_counter[IR]++;
-  filter_counter[Red]++;
+  if(!filter_counter[IR]){
+    filter_temp[IR] = lowpass_filter(IR);
+    filter_counter[IR] = 1; 
+  }
+  if(!filter_counter[Red]){
+    filter_temp[Red] = lowpass_filter(Red);
+    filter_counter[Red] = 1; 
+  }
 }
+
+//===============================================================================================================================================================//
+//                                                  NO NO ZONE ENDS HERE (YOU DONT WANT TO EDIT ANYTHING)                                                        //
+//===============================================================================================================================================================//
 
 int draw_text(int x, int y, int size, int color, String text){
   display.setTextSize(size);      // Normal 1:1 pixel scale
@@ -244,50 +368,570 @@ int draw_text(int x, int y, int size, int color, String text){
   }
 }
 
-int display_monitor(){
-  if((value_change-1)==1){
-    //IR
-    display.fillRect(10,0,54,8, BLACK);
-    String text = String(filter_temp[IR]);
-    draw_text(10,2,1,WHITE,text);
-    int temp = (int)((filter_temp[IR]+signal_wrap[IR][MIN])/signal_wrap[IR][MAX]*24);
-    display.drawPixel(126, 31-temp, WHITE);
+//=====================================================BLUETOOTH=====================================================//
+
+BLEService heartRateService("5a30");
+BLEUnsignedLongCharacteristic heartRateCharacteristic("7a21", BLERead);
+BLEUnsignedLongCharacteristic SpO2Characteristic("7a23", BLERead);
+BLEUnsignedLongCharacteristic TimeCharacteristic("7a25", BLERead);
+
+bool bluetooth_enabled = false;
+bool bluetooth_connected = false;
+
+int bluetooth_initiatize(){
+  digitalWrite(2, HIGH);
+  if (!BLE.begin()) {
+    Serial.println("starting Bluetooth® Low Energy failed!");
+    for(int i = 0; i < 10; i++){
+      digitalWrite(3, HIGH);
+      delay(100);
+      digitalWrite(3, LOW);
+      delay(100);
+    }
+    return 0;
+  }
+  
+  // Bluetooth configs //
+  BLE.setDeviceName("OxiClip v1.1");
+  BLE.setLocalName("OxiClip");
+  BLE.setAdvertisedService(heartRateService);
+  
+  heartRateService.addCharacteristic(heartRateCharacteristic);
+  heartRateService.addCharacteristic(SpO2Characteristic);
+  heartRateService.addCharacteristic(TimeCharacteristic);
+  
+  heartRateCharacteristic.writeValue(0);
+  SpO2Characteristic.writeValue(0);
+  TimeCharacteristic.writeValue(0);
+  
+  BLE.addService(heartRateService);
+  BLE.advertise();
+  Serial.println("Bluetooth® Low Energy started!");
+  bluetooth_enabled = true;
+  digitalWrite(2, LOW);
+}
+
+void bluetooth_shutdown(){
+  BLE.stopAdvertise();
+  BLE.end();
+  bluetooth_enabled = false;
+  bluetooth_connected = false;
+}
+
+BLEDevice central;
+
+void bluetooth_checkConnection(){
+  central = BLE.central();
+  if(central){
+    bluetooth_connected = true;
   }
   else{
-    //RED
-    display.fillRect(74,0,54,8, BLACK);
-    String text = String(filter_temp[Red]);
-    draw_text(74,2,1,WHITE,text);
-    int temp = (int)((filter_temp[IR]+signal_wrap[IR][MIN])/signal_wrap[IR][MAX]*24);
-    display.drawPixel(126, 55-temp, WHITE);
-    display.startscrollleft(1,6);
-    display.stopscroll();
+    bluetooth_connected = false;
   }
-  display.drawLine(0,0,0,127,BLACK);
+}
+
+void bluetooth_sendData(){
+  heartRateCharacteristic.writeValue((long unsigned int)(1200/heart_rate_counter[Red]));
+  SpO2Characteristic.writeValue((int)SpO2);
+  TimeCharacteristic.writeValue(millis()/1000);
+}
+
+//=====================================================BLUETOOTH=====================================================//
+
+//=====================================================BMP STORAGE=====================================================//
+
+static const unsigned char PROGMEM LOGO_bmp[] = {
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000001, B11111000, B00000000, B10110000, B00000001, B01100000, B00000000, B00001111, B11000000, B01110000, B00000000, B00000000, B01001111, B11111000, B00000000,
+  B00000000, B00000111, B11111110, B00000000, B11111000, B00000011, B01100011, B00000000, B00111111, B11110000, B01111000, B00000000, B01100000, B01100111, B11111100, B00000000,
+  B00000000, B00011100, B00000011, B10000000, B10001000, B00000110, B01000011, B10000000, B01100000, B00011000, B01001000, B00000000, B01110000, B00100000, B00000110, B00000000,
+  B00000000, B00110001, B11111000, B11000000, B01100100, B00001100, B10000010, B11000001, B10001111, B11000100, B01001000, B00000000, B00101000, B00011111, B11110001, B00000000,
+  B00000000, B01100110, B00000110, B01100000, B00110010, B00001001, B10000010, B01000011, B00110000, B00111000, B01001000, B00000000, B00101000, B00000000, B00001001, B10000000,
+  B00000000, B01001100, B00000011, B00100000, B00011011, B00010011, B00000010, B01000010, B01100000, B00011000, B01001000, B00000000, B00101000, B00000000, B00000100, B10000000,
+  B00000000, B01001000, B00000001, B00100000, B00001001, B00110010, B00000010, B01000100, B01000000, B00000000, B01001000, B00000000, B00101000, B00000000, B00000100, B10000000,
+  B00000000, B10011000, B00000000, B10010000, B00001100, B11100110, B00000010, B01000100, B10000000, B00000000, B01001000, B00000000, B00101000, B00000000, B00000100, B01000000,
+  B00000000, B10110000, B00000000, B11010000, B00000100, B11101000, B00000010, B01000100, B10000000, B00000000, B01001000, B00000000, B00101000, B00000000, B00000100, B10000000,
+  B00000000, B10100000, B00000000, B01010000, B00000011, B00010000, B00000010, B01001100, B10000000, B00000000, B01001000, B00000000, B00101000, B00000000, B00001101, B10000000,
+  B00000000, B10100000, B00000000, B01010000, B00000000, B00010000, B00000010, B01001000, B10000000, B00000000, B01001000, B00000000, B00101000, B11111111, B11111001, B10000000,
+  B00000000, B10100000, B00000000, B01010000, B00000011, B00010000, B00000010, B01001100, B10000000, B00000000, B01001000, B00000000, B00101000, B10000000, B00000011, B00000000,
+  B00000000, B10110000, B00000000, B11010000, B00000111, B00101000, B00000010, B01000100, B10000000, B00000000, B01011000, B00000000, B00101000, B10000000, B00000110, B00000000,
+  B00000000, B10010000, B00000000, B10010000, B00000100, B11101100, B00000010, B01000100, B10000000, B00000000, B01010000, B00000000, B00101000, B10011111, B11111100, B00000000,
+  B00000000, B11011000, B00000001, B10110000, B00001001, B10100110, B00000010, B01000100, B01000000, B00000000, B01100000, B00000000, B00101000, B10110000, B00000000, B00000000,
+  B00000000, B01001100, B00000011, B00100000, B00011011, B00010011, B00000010, B01000010, B01100000, B00000000, B01000000, B00000000, B00101000, B10100000, B00000000, B00000000,
+  B00000000, B01100111, B00001110, B01100000, B00110010, B00001001, B10000010, B01000011, B00111000, B00000000, B00000000, B00000000, B01101000, B10100000, B00000000, B00000000,
+  B00000000, B00110001, B11111000, B11000000, B01100100, B00001100, B10000010, B11000001, B10001111, B00000000, B00001111, B11111110, B00101000, B10100000, B00000000, B00000000,
+  B00000000, B00011000, B00000001, B10000000, B01001100, B00000100, B01000011, B10000000, B11000011, B10000000, B00011101, B00000110, B00110000, B10100000, B00000000, B00000000,
+  B00000000, B00001110, B00000111, B00000000, B10011000, B00000010, B01100011, B00000000, B01110000, B11100000, B00110000, B00000010, B01100000, B10100000, B00000000, B00000000,
+  B00000000, B00000001, B11111000, B00000001, B11110000, B00000001, B11100000, B00000000, B00001111, B11000000, B00111111, B11111110, B00000000, B11100000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000111, B10001000, B01000100, B00001110, B00011111, B00000000, B11110000, B10000101, B11111000, B00000010, B01111100, B11111000, B11110001, B11100000, B00000000,
+  B00000000, B00000111, B11001000, B01001100, B00011111, B00111111, B00000001, B11111000, B11011101, B11111001, B10000110, B01111100, B11111000, B11111001, B11110000, B00000000,
+  B00000000, B00000100, B01101000, B01001100, B00011001, B10110000, B00000001, B10001100, B01011000, B01100001, B10001110, B01000000, B00100001, B10000011, B00010000, B00000000,
+  B00000000, B00000100, B01101000, B01001100, B00011000, B00110000, B00000010, B00000100, B01110000, B01100001, B11001110, B01101000, B00100000, B10000011, B00011000, B00000000,
+  B00000000, B00000111, B11001000, B01001100, B00000111, B00111110, B00000010, B00000110, B00100000, B01100011, B11011110, B01111100, B00100000, B11110001, B11110000, B00000000,
+  B00000000, B00000100, B00001000, B01001100, B00000001, B10110000, B00000011, B00001100, B01110000, B01100011, B01010010, B01000000, B00100000, B10000001, B01100000, B00000000,
+  B00000000, B00000100, B00001100, B01001100, B00011001, B10110000, B00000001, B10001000, B11011000, B01100011, B00110010, B01000000, B00100001, B10000011, B00110000, B00000000,
+  B00000000, B00000100, B00000111, B11001111, B10011011, B10111111, B00000001, B11111000, B11001101, B11111011, B00110010, B01111100, B00100000, B11110011, B00010000, B00000000,
+  B00000000, B00000000, B00000011, B10000111, B10001110, B00011111, B00000000, B01100000, B10000101, B11111000, B00000000, B00111100, B00000000, B11110000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000,
+  B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000};
+
+static const unsigned char PROGMEM PPG_bmp[] = {
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00100000, B00000000, B00000000, B00000000, B00000001, B00000000, B00000000, B00000000, B00000000, B00001000, B00000001,
+  B10000000, B01110000, B00000000, B00000000, B00000000, B00000011, B10000000, B00000000, B00000000, B00000000, B00011100, B00000001,
+  B10000000, B01111000, B00000000, B00000000, B00000000, B00000011, B11000000, B00000000, B00000000, B00000000, B00011110, B00000001,
+  B10000000, B11111100, B00000000, B00000000, B00000000, B00000111, B11100000, B00000000, B00000000, B00000000, B00111111, B00000001,
+  B10000000, B11111100, B00000000, B00000000, B00000000, B00000111, B11100000, B00000000, B00000000, B00000000, B00111111, B00000001,
+  B10000001, B11111110, B00000000, B00000000, B00000000, B00001111, B11110000, B00000000, B00000000, B00000000, B01111111, B10000001,
+  B10000001, B11111111, B00000000, B00000000, B00000000, B00001111, B11111000, B00000000, B00000000, B00000000, B01111111, B11000001,
+  B10000001, B11111111, B10000000, B00000000, B00000000, B00001111, B11111100, B00000000, B00000000, B00000000, B01111111, B11100001,
+  B10000001, B11111111, B10000000, B00000000, B00000000, B00001111, B11111100, B00000000, B00000000, B00000000, B01111111, B11100001,
+  B10000001, B11111111, B10000000, B00000000, B00000000, B00001111, B11111100, B00000000, B00000000, B00000000, B01111111, B11100001,
+  B10000001, B11111111, B11000000, B00000000, B00000000, B00001111, B11111110, B00000000, B00000000, B00000000, B01111111, B11110001,
+  B10000011, B11111111, B11111100, B00000000, B00000000, B00011111, B11111111, B11100000, B00000000, B00000000, B11111111, B11111111,
+  B10000011, B11111111, B11111110, B00000000, B00000000, B00011111, B11111111, B11110000, B00000000, B00000000, B11111111, B11111111,
+  B10000011, B11111111, B11111111, B10000000, B00000000, B00011111, B11111111, B11111100, B00000000, B00000000, B11111111, B11111111,
+  B10000011, B11111111, B11111111, B11000000, B00000000, B00011111, B11111111, B11111110, B00000000, B00000000, B11111111, B11111111,
+  B10000011, B11111111, B11111111, B11100000, B00000000, B00011111, B11111111, B11111111, B00000000, B00000000, B11111111, B11111111,
+  B10000011, B11111111, B11111111, B11110000, B00000000, B00011111, B11111111, B11111111, B10000000, B00000000, B11111111, B11111111,
+  B10000111, B11111111, B11111111, B11111100, B00000000, B00111111, B11111111, B11111111, B11100000, B00000001, B11111111, B11111111,
+  B10000111, B11111111, B11111111, B11111110, B00000000, B00111111, B11111111, B11111111, B11110000, B00000001, B11111111, B11111111,
+  B10000111, B11111111, B11111111, B11111111, B00000000, B00111111, B11111111, B11111111, B11111000, B00000001, B11111111, B11111111,
+  B10000111, B11111111, B11111111, B11111111, B10000000, B00111111, B11111111, B11111111, B11111100, B00000001, B11111111, B11111111,
+  B10001111, B11111111, B11111111, B11111111, B11000000, B01111111, B11111111, B11111111, B11111110, B00000011, B11111111, B11111111,
+  B10011111, B11111111, B11111111, B11111111, B11100000, B11111111, B11111111, B11111111, B11111111, B00000111, B11111111, B11111111,
+  B10111111, B11111111, B11111111, B11111111, B11110001, B11111111, B11111111, B11111111, B11111111, B10001111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111};
+
+static const unsigned char PROGMEM BLE_bmp[] = {
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B11111100, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000011, B11111111, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000111, B11011111, B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10001111, B11001111, B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10001111, B11000111, B11000011, B11111000, B11000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00011000, B00111001,
+  B10011111, B11000011, B11100001, B11111100, B11000000, B00000000, B00000011, B10000000, B00000000, B00000111, B00011000, B00101001,
+  B10011100, B11011001, B11100001, B10011110, B11000000, B00000000, B00000011, B00000000, B00000000, B00000110, B00011000, B00111001,
+  B10011100, B11011101, B11100001, B10001110, B11000000, B00000001, B11000011, B00000111, B00000011, B10000110, B00011000, B00000001,
+  B10011110, B01011011, B11100001, B10001110, B11001100, B01100011, B11100111, B11001111, B10000111, B11001111, B10011111, B10000001,
+  B10011111, B00000111, B11100001, B10011100, B11001100, B01100111, B01110111, B11011101, B11001110, B11101111, B10011111, B11000001,
+  B10011111, B11001111, B11100001, B11111000, B11001100, B01100110, B01110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011111, B11001111, B11100001, B11111000, B11001100, B01100110, B00110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011111, B00000111, B11100001, B10011100, B11001100, B01100111, B11110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011110, B01011011, B11100001, B10001110, B11001100, B01100111, B11110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011100, B11011101, B11100001, B10001110, B11001100, B01100110, B00000011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011100, B11011001, B11100001, B10001110, B11001100, B01100110, B00110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10011111, B11000011, B11100001, B10011110, B11001100, B01100110, B01110011, B00011000, B11001100, B01100110, B00011000, B11000001,
+  B10001111, B11000111, B11000001, B11111100, B11001111, B11100111, B11110011, B11011101, B11001110, B11100111, B10011000, B11000001,
+  B10001111, B11001111, B10000011, B11111000, B11101111, B01100011, B11100001, B11001111, B10000111, B11000011, B10011000, B11000001,
+  B10000111, B11011111, B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000011, B11111111, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B11111100, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111};
+
+static const unsigned char PROGMEM SERIAL_bmp[] = {
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B11110000, B00000000, B00000110, B00000000, B01100000, B00111100, B00000000, B11000000, B00000000, B00000011, B10000001,
+  B10000011, B11111000, B00000000, B00000110, B00000000, B01100000, B01111111, B00000000, B11000000, B00000001, B00000111, B11000001,
+  B10000111, B00010000, B00000000, B00000000, B00000000, B01100000, B01100111, B10000000, B00000000, B00000011, B00001100, B11000001,
+  B10000110, B00000000, B00000000, B00000000, B00000000, B01100000, B01100001, B10000000, B00000000, B00000011, B00001100, B11100001,
+  B10000111, B00000001, B11111001, B11110110, B01111110, B01100000, B01100001, B10111110, B11001111, B11101111, B11011000, B01100001,
+  B10000011, B10000001, B11111001, B11110110, B01111110, B01100000, B01100001, B10111110, B11001111, B11100111, B11011000, B01100001,
+  B10000001, B11100011, B00001101, B11000110, B00000111, B01100000, B01111111, B00111000, B11001100, B01110011, B00011000, B01100001,
+  B10000000, B11110011, B11111101, B10000110, B00111111, B01100000, B01111111, B00110000, B11001100, B00110011, B00011000, B01100001,
+  B10000000, B00111011, B11111101, B10000110, B01111111, B01100000, B01100000, B00110000, B11001100, B00110011, B00011000, B01100001,
+  B10000000, B00011011, B00000001, B10000110, B11100111, B01100000, B01100000, B00110000, B11001100, B00110011, B00011000, B01100001,
+  B10000100, B00111011, B10000001, B10000110, B11000111, B01100000, B01100000, B00110000, B11001100, B00110011, B00011000, B01100001,
+  B10000111, B11110001, B11111001, B10000110, B11111111, B01100110, B01100000, B00110000, B11001100, B00110011, B11011000, B01100001,
+  B10000011, B11100000, B11111001, B10000110, B01111011, B01100110, B01100000, B00110000, B11001100, B00110001, B11001100, B01100001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00001100, B11000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000111, B11000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000011, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B10000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000001,
+  B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111, B11111111};
+
+static const unsigned char PROGMEM LEFT_bmp[] = {
+  B00000000, B10000000,
+  B00000001, B10000000,
+  B00000011, B10000000,
+  B00000111, B10000000,
+  B00001111, B10000000,
+  B00011111, B10000000,
+  B00111111, B10000000,
+  B01111111, B10000000,
+  B01111111, B10000000,
+  B00111111, B10000000,
+  B00011111, B10000000,
+  B00001111, B10000000,
+  B00000111, B10000000,
+  B00000011, B10000000,
+  B00000001, B10000000,
+  B00000000, B10000000};
+
+static const unsigned char PROGMEM RIGHT_bmp[] = {
+  B00000001, B00000000,
+  B00000001, B10000000,
+  B00000001, B11000000,
+  B00000001, B11100000,
+  B00000001, B11110000,
+  B00000001, B11111000,
+  B00000001, B11111100,
+  B00000001, B11111110,
+  B00000001, B11111110,
+  B00000001, B11111100,
+  B00000001, B11111000,
+  B00000001, B11110000,
+  B00000001, B11100000,
+  B00000001, B11000000,
+  B00000001, B10000000,
+  B00000001, B00000000};
+
+static const unsigned char PROGMEM DOWN_bmp[] = {
+  B00000000,
+  B00000000,
+  B00000000,
+  B11111111,
+  B01111110,
+  B00111100,
+  B00011000,
+  B00000000};
+
+//=====================================================BMP STORAGE=====================================================//
+
+//=====================================================DISPLAY FUNCTIONS=====================================================//
+
+float prev_display_value[2] = {0,0};
+bool finger_out = false;
+int measure_time_counter = 0;
+bool serial_print = false;
+
+int display_monitor(){
+  int temp_position = current_position-1;
+  if(temp_position<0){temp_position+=n;}
+  if(raw_signal[Red][temp_position]<1000){
+    display.clearDisplay();
+    monitor_position=0;
+    finger_out = true;
+    draw_text(2,2,2,WHITE,"Finger out");
+    draw_text(0,22,1,WHITE,"Insert finger");
+    draw_text(0,30,1,WHITE,"And stay still");
+    measure_time_counter = 0;
+    display.drawBitmap(
+      (display.width() - 8) / 2,
+      56,
+      DOWN_bmp, 8, 8, 1);
+    draw_text((display.width() - 14*6 ) / 2, 50, 1, WHITE, "Return to menu");
+    digitalWrite(3, LOW);
+  }
+  else{if((value_change-1)==1){
+    if(finger_out == true){
+      display.clearDisplay();
+      finger_out = false;
+    }
+    if(measure_time_counter<300){
+      measure_time_counter++;
+      display.fillRect(0,0,128,38,BLACK);
+      draw_text(2,2,1,WHITE,"Measuring Heart Rate");
+      display.fillRect(0,18,128,5, WHITE);
+      display.fillRect(4+measure_time_counter*120/300,19,120-measure_time_counter*120/300,3,BLACK);
+      digitalWrite(3, LOW);
+    }
+    else{
+      display.fillRect(0,0,128,38,BLACK);
+      draw_text(2,2,1,WHITE,"HR:");
+      draw_text(20,2,1,WHITE, String((int)(1200/heart_rate_counter[IR])));
+      //draw_text(20,2,1,WHITE, String((int)(1200/red_heart.average())));
+      draw_text(40,2,1,WHITE,"SpO2:");
+      draw_text(70,2,1,WHITE, String((int)SpO2));
+      draw_text(82,2,1,WHITE,"%");
+      if(red_heart.variance()>4500){
+        draw_text(2,18,1,WHITE,"Bad reading!");
+        digitalWrite(3, HIGH);
+      }
+      if(stablized_signal_wrap[IR][MAX]-stablized_signal_wrap[IR][MIN]<400){
+        draw_text(2,26,1,WHITE,"Re-position finger!");
+        digitalWrite(3, HIGH);
+      }
+      if(red_heart.variance()<=3000 && stablized_signal_wrap[IR][MAX]-stablized_signal_wrap[IR][MIN]>400){
+        digitalWrite(3, LOW);
+      }
+    }
+    
+    // Display PPG waveform
+    float display_value = 0;
+    if(signal_wrap[IR][MAX]-signal_wrap[IR][MIN] > 100){
+      display_value = (output-stablized_signal_wrap[IR][MIN])/(stablized_signal_wrap[IR][MAX]-stablized_signal_wrap[IR][MIN])*24;
+    }
+    prev_display_value[IR] = exp_average(prev_display_value[IR], display_value, 0.5);
+    if(prev_display_value[IR]>24){prev_display_value[IR]=24;}
+    if(prev_display_value[IR]<0){prev_display_value[IR]=0;}
+    display.fillRect(monitor_position,38,4,127,BLACK);
+    display.drawLine(monitor_position+2,38,monitor_position+2,127,WHITE);
+    display.drawLine(monitor_position,63,monitor_position, 63-prev_display_value[IR], WHITE);
+    monitor_position++;
+    monitor_position%=128;
+  }}
   display.display();
+  
   return 0;
 }
+
+int display_setting(){
+  display.clearDisplay();
+  String display_message = "";
+  if(bluetooth_enabled){
+    if(bluetooth_connected){
+      display_message = "Connected";
+    }
+    else{
+      display_message = "Waiting for device";
+    }
+  }
+  else{
+    display_message = "Disabled";
+  }
+  draw_text((display.width() - 17*6) / 2,2,1,WHITE,"Bluetooth Status:");
+  draw_text((display.width() - display_message.length()*6) / 2,11,1,WHITE,display_message);
+  display.drawBitmap(
+    (display.width() - 8) / 2,
+    56,
+    DOWN_bmp, 8, 8, 1);
+  draw_text((display.width() - 14*6 ) / 2, 50, 1, WHITE, "Return to menu");
+  if(bluetooth_enabled){
+    display_message = "Disable";
+    display.drawBitmap(
+      20,
+      (display.height() - 16) / 2,
+      LEFT_bmp, 16, 16, 1);
+  }
+  else{
+    display_message = "Connect";
+    display.drawBitmap(
+      92,
+      (display.height() - 16) / 2,
+      RIGHT_bmp, 16, 16, 1);
+  }
+  display.fillRect((display.width() - display_message.length()*6)/2-2, (display.height() - 7)/2-1, display_message.length()*6+3, 11, WHITE);
+  draw_text((display.width() - display_message.length()*6) / 2,display.height()/2-3,1,BLACK,display_message);
+  display.display();
+}
+
+int display_serial(){
+  display.clearDisplay();
+  String display_message = "";
+  if(serial_print){
+    display_message = "Enabled";
+  }
+  else{
+    display_message = "Disabled";
+  }
+  draw_text((display.width() - 14*6) / 2,2,1,WHITE,"Serial Status:");
+  draw_text((display.width() - display_message.length()*6) / 2,11,1,WHITE,display_message);
+  display.drawBitmap(
+    (display.width() - 8) / 2,
+    56,
+    DOWN_bmp, 8, 8, 1);
+  draw_text((display.width() - 14*6 ) / 2, 50, 1, WHITE, "Return to menu");
+  if(serial_print){
+    display_message = "Disable";
+    display.drawBitmap(
+      20,
+      (display.height() - 16) / 2,
+      LEFT_bmp, 16, 16, 1);
+  }
+  else{
+    display_message = "Enable";
+    display.drawBitmap(
+      92,
+      (display.height() - 16) / 2,
+      RIGHT_bmp, 16, 16, 1);
+  }
+  display.fillRect((display.width() - display_message.length()*6)/2-2, (display.height() - 7)/2-1, display_message.length()*6+3, 11, WHITE);
+  draw_text((display.width() - display_message.length()*6) / 2,display.height()/2-3,1,BLACK,display_message);
+  display.display();
+}
+
+int display_menu(int at_page){
+  display.clearDisplay();
+  switch(at_page){
+    case 0:
+      display.drawBitmap(
+        (display.width() - 96 ) / 2,
+        (display.height() - 48) / 2,
+        PPG_bmp, 96, 48, 1);
+      draw_text((display.width() - 6*11)/2,0,1,WHITE,"PPG Monitor");
+    break;
+    case 1:
+      display.drawBitmap(
+        (display.width() - 96 ) / 2,
+        (display.height() - 48) / 2,
+        BLE_bmp, 96, 48, 1);
+      draw_text((display.width() - 6*9)/2,0,1,WHITE,"Bluetooth");
+    break;
+    case 2:
+      display.drawBitmap(
+        (display.width() - 96 ) / 2,
+        (display.height() - 48) / 2,
+        SERIAL_bmp, 96, 48, 1);
+      draw_text((display.width() - 6*12)/2,0,1,WHITE,"Serial Print");
+  }
+  display.drawBitmap(
+    0,
+    (display.height() - 16) / 2,
+    LEFT_bmp, 16, 16, 1);
+  display.drawBitmap(
+    112,
+    (display.height() - 16) / 2,
+    RIGHT_bmp, 16, 16, 1);
+  display.drawBitmap(
+    (display.width() - 8) / 2,
+    56,
+    DOWN_bmp, 8, 8, 1);
+  display.display();
+}
+
+void print_all(){
+  if(!checker){
+    Serial.print("IR:");
+    Serial.print(filter_temp[IR]+signal_difference);
+    Serial.print(",IRUpperEnvelope:");
+    Serial.print(signal_wrap_a[IR][MAX][Y]+signal_difference);
+    Serial.print(",IRLowerEnvelope:");
+    Serial.print(signal_wrap_a[IR][MIN][Y]+signal_difference);
+    //Serial.print(",IR_Power:");
+    //Serial.print(signal_power[IR]);
+  }
+  else{
+    //Serial.print(",Red_Power:");
+    //Serial.print(signal_power[Red]);
+    Serial.print(",RedUpperEnvelope:");
+    Serial.print(signal_wrap_a[Red][MAX][Y]);
+    Serial.print(",RedLowerEnvelope:");
+    Serial.print(signal_wrap_a[Red][MIN][Y]);
+    Serial.print(",RED:");
+    Serial.println(filter_temp[Red]);
+  }
+}
+
+//=====================================================DISPLAY FUNCTIONS=====================================================//
 
 //==========================================================================================//
 //                            3. Main program (initialize environment)                      //
 //==========================================================================================//
 
 void setup() {
-  digitalWrite(2, HIGH);
-  digitalWrite(3, HIGH);
-  delay(2000);
-  for(int x = 0; x<10; x++){
-    digitalWrite(2, HIGH);
-    digitalWrite(3, LOW);
-    delay(100);
-    digitalWrite(2, LOW);
-    digitalWrite(3, HIGH);
-    delay(100);
-  }
-  digitalWrite(2, LOW);
-  digitalWrite(3, LOW);
+  pinMode(6, INPUT_PULLUP);
+  pinMode(7, INPUT_PULLUP);
+  pinMode(8, INPUT_PULLUP);
   
   // Turn on serial port (baud, bit per second) //
+  //wire.setSpeed(CLOCK_SPEED_400KHZ);
   Serial.begin(clock_rate);
   // Set analog read & write resolution (bit) //
   analogWriteResolution(output_resolution);
@@ -297,16 +941,43 @@ void setup() {
     raw_signal[1][i]=0;
   }
 
+  // Initiatize OLED //
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
   display.clearDisplay();
+  display.drawBitmap(
+    (display.width() - 128 ) / 2,
+    (display.height() - 64) / 2,
+    LOGO_bmp, 128, 64, 1);
+  display.display();
+  
+  digitalWrite(2, HIGH);
+  delay(400);
+  for(int x = 0; x<3; x++){
+    digitalWrite(2, HIGH);
+    delay(100);
+    digitalWrite(2, LOW);
+    delay(100);
+  }
+  digitalWrite(2, LOW);
+  digitalWrite(3, LOW);
 }
 
 //==========================================================================================//
 //                                 4. Main program (looping)                                //
 //==========================================================================================//
+bool button[3][2] = {{false,false},{false,false},{false,false}};
+#define left 0
+#define middle 1
+#define right 2
+#define now 0
+#define prev 1
+int page = 0;
+bool bluetooth_checker = false;
+float bluetooth_t = 0;
+
 void loop() {
 
   // Set vaiable to record start time for loop time monitoring (i.e sampling period) //
@@ -315,45 +986,108 @@ void loop() {
   // Using counter to compute the phase of the waveform //
   float ct = start_time / 1000000;
   float t = ct;
-  //Serial.println(t);
 
+  if(mode != monitor_){loop_period = default_loop_period*20;}
+  else{loop_period = default_loop_period;}
+  if(bluetooth_enabled){
+    bluetooth_checkConnection();  
+  }
+  
   switch(mode){
   case menu_:
     // Main Menu
-
+    display_menu(page);
+    if(!button[left][now] && button[left][prev]){page--;}
+    if(!button[right][now] && button[right][prev]){page++;}
+    if(!button[middle][now] && button[middle][prev]){
+      switch(page){
+        case 0:
+          mode = monitor_;
+        break;
+        case 1:
+          mode = setting_;
+        break;
+        case 2:
+          mode = print_;
+      }
+    }
+    page %= 3;
+    if(page<0){page+=3;}
   break;
   case monitor_:
     // Monitoring PPG signal
     probe(t);
     if(value_change){
       display_monitor();
+      if(serial_print){
+        print_all();  
+      }
     }
-  break;
-  case save_:
-    // Saving data
-  
+    if(measure_time_counter>=300){
+      bluetooth_t = remainder(t,2);
+      if(bluetooth_t > 0.8 && bluetooth_t < 1 && !bluetooth_checker && bluetooth_connected){
+        bluetooth_sendData();
+        bluetooth_checker=true;
+      }
+      if(!(bluetooth_t > 0.8 && bluetooth_t < 1) && bluetooth_checker){
+        bluetooth_checker=false;
+      }
+    }
+    if(!button[middle][now] && button[middle][prev]){
+      mode = menu_;
+    }
   break;
   case setting_:
     // Setting
-  
+    display_setting();
+    if(!button[middle][now] && button[middle][prev]){
+      mode = menu_;
+    }
+    if(!button[right][now] && button[right][prev] && !bluetooth_enabled){bluetooth_initiatize();}
+    if(!button[left][now] && button[left][prev] && bluetooth_enabled){bluetooth_shutdown();}
   break;
+  case print_:
+    display_serial();
+    if(!button[middle][now] && button[middle][prev]){
+      mode = menu_;
+    }
+    if(!button[right][now] && button[right][prev] && !serial_print){serial_print = true;}
+    if(!button[left][now] && button[left][prev] && serial_print){serial_print = false;}
   case easteregg_:
     // Easter Egg
-  
+    
   break;
   }
-
-  // Set vaiable to record end time for loop time monitoring (i.e sampling period) //
-  float end_time = micros();
-  int delay_t = loop_period - (end_time - start_time);
-
-  /*
-  Serial.print(" {");
-  Serial.print(delay_t);
-  Serial.println("} ");
-  */
   
-  if(delay_t < 0){delay_t = 0;}
+  int D6 = digitalRead(6);
+  int D7 = digitalRead(7);
+  int D8 = digitalRead(8);
+
+  button[left][prev]=button[left][now];
+  button[middle][prev]=button[middle][now];
+  button[right][prev]=button[right][now];
+
+  if(D6 == LOW){button[left][now]=true;}
+  else{button[left][now]=false;}
+  if(D7 == LOW){button[middle][now]=true;}
+  else{button[middle][now]=false;}
+  if(D8 == LOW){button[right][now]=true;}
+  else{button[right][now]=false;}
+  
+  /*
+  Serial.println();
+  Serial.print("Delay_debt:");
+  Serial.print(delay_debt);
+  Serial.print(",Delay_t:");
+  Serial.println(delay_t);
+  */
+  // Set vaiable to record end time for loop time monitoring (i.e sampling period) //
+  
+  float end_time = micros();
+  int delay_t = loop_period - (end_time - start_time) - delay_debt;
+  if(delay_t < 0){delay_debt = -delay_t; delay_t = 0;}
+  else{delay_debt = 0;}
+
   delayMicroseconds(delay_t);
   // Set delay equal to the difference between start and end times to control loop time //
 }
